@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aviation Digest — Daily Podcast</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <h1>✈ Aviation Digest</h1>
+  <p>Daily top-5 aviation news · English &amp; Chinese · Powered by AI</p>
+</header>
+
+<main id="app">
+  <div class="loading" id="loading">Loading episodes…</div>
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+const BASE = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '');
+const EPISODES_BASE = BASE + '/episodes';
+
+// ---------------------------------------------------------------------------
+// Fetch helpers
+// ---------------------------------------------------------------------------
+async function fetchJSON(url) {
+  const r = await fetch(url + '?_=' + Date.now()); // bust cache
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${url}`);
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+function renderEpisode(ep) {
+  const storyItems = (ep.top_articles || []).map(a => `
+    <li>
+      <span class="rank-badge">${a.rank}</span>
+      <div class="story-info">
+        <a href="${a.url}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
+        <p class="story-summary en-content">${esc(a.summary_en || '')}</p>
+        <p class="story-summary zh-content" style="display:none">${esc(a.summary_zh || '')}</p>
+      </div>
+    </li>`).join('');
+
+  const id = ep.date.replace(/-/g, '');
+
+  return `
+  <article class="episode" id="ep-${id}">
+    <div class="episode-header">
+      <span class="date">${ep.date}</span>
+      <span class="badge">Top ${(ep.top_articles || []).length} stories</span>
+    </div>
+    <div class="episode-body">
+
+      <ul class="stories">${storyItems}</ul>
+
+      <div class="audio-section">
+        <div class="audio-label">English</div>
+        <audio controls preload="none" src="${ep.audio_en_url}"></audio>
+      </div>
+      <div class="audio-section">
+        <div class="audio-label">中文</div>
+        <audio controls preload="none" src="${ep.audio_zh_url}"></audio>
+      </div>
+
+      <button class="toggle-btn" onclick="toggleLang('${id}', this)">
+        🌐 Switch to Chinese
+      </button>
+
+      <div class="shownotes en-notes visible" id="notes-en-${id}">${esc(ep.shownotes_en || '')}</div>
+      <div class="shownotes zh-notes"        id="notes-zh-${id}">${esc(ep.shownotes_zh || '')}</div>
+
+    </div>
+  </article>`;
+}
+
+// Toggle between EN and ZH content inside an episode card
+function toggleLang(id, btn) {
+  const card = document.getElementById('ep-' + id);
+  const enNotes = card.querySelector('.en-notes');
+  const zhNotes = card.querySelector('.zh-notes');
+  const enSummaries = card.querySelectorAll('.en-content');
+  const zhSummaries = card.querySelectorAll('.zh-content');
+
+  const showingEn = enNotes.classList.contains('visible');
+  if (showingEn) {
+    enNotes.classList.remove('visible');
+    zhNotes.classList.add('visible');
+    enSummaries.forEach(el => el.style.display = 'none');
+    zhSummaries.forEach(el => el.style.display = '');
+    btn.textContent = '🌐 Switch to English';
+  } else {
+    zhNotes.classList.remove('visible');
+    enNotes.classList.add('visible');
+    zhSummaries.forEach(el => el.style.display = 'none');
+    enSummaries.forEach(el => el.style.display = '');
+    btn.textContent = '🌐 Switch to Chinese';
+  }
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+async function main() {
+  const app = document.getElementById('app');
+  const loading = document.getElementById('loading');
+
+  try {
+    const dates = await fetchJSON(EPISODES_BASE + '/index.json');
+
+    if (!dates || dates.length === 0) {
+      loading.textContent = 'No episodes yet. Check back tomorrow!';
+      return;
+    }
+
+    loading.style.display = 'none';
+
+    // Load all episodes in order (newest first — index.json is pre-sorted)
+    const episodes = await Promise.all(
+      dates.map(d => fetchJSON(EPISODES_BASE + '/' + d + '.json').catch(() => null))
+    );
+
+    const html = episodes
+      .filter(Boolean)
+      .map(renderEpisode)
+      .join('');
+
+    app.innerHTML = html;
+
+  } catch (err) {
+    loading.textContent = 'Could not load episodes: ' + err.message;
+    console.error(err);
+  }
+}
+
+main();
+</script>
+</body>
+</html>
