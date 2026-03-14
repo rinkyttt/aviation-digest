@@ -4,6 +4,6 @@ beautifulsoup4==4.12.3
 lxml==5.2.2
 openai==1.30.0
 supabase==2.5.0
-edge-tts==6.1.9
+edge-tts>=7.2.7
 resend==2.1.0
 tenacity==8.3.0

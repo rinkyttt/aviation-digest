@@ -12,10 +12,12 @@ Workflow 2 — runs daily at 14:00 UTC (8 AM Chicago CST) via GitHub Actions.
 8. Send email via Resend.
 """
 
+from __future__ import annotations
 import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -39,7 +41,11 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 STORAGE_BUCKET = "podcast-audio"
 
+PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 DOCS_DIR = Path(__file__).parent.parent / "docs"
+
+def load_prompt(name: str) -> str:
+    return (PROMPTS_DIR / name).read_text()
 EPISODES_DIR = DOCS_DIR / "episodes"
 
 
@@ -57,14 +63,7 @@ def rank_top_articles(articles: list[dict]) -> list[dict]:
         f"{i+1}. ID={a['id']} | {a['title']}\n   Summary: {(a.get('summary_en') or '')[:200]}"
         for i, a in enumerate(articles)
     )
-    prompt = (
-        "You are an aviation news editor selecting today's top stories.\n"
-        "Rate each article by newsworthiness, significance, and reader interest.\n\n"
-        f"Articles:\n{items}\n\n"
-        "Return a JSON array of up to 5 objects, sorted by rank (1 = most important):\n"
-        '[{"article_id": "<uuid>", "rank": 1, "score": 9.5, "reason": "...short reason..."}, ...]\n'
-        "Reply with ONLY the JSON array, no other text."
-    )
+    prompt = load_prompt("rank_articles.md").replace("{articles}", items)
     response = openai_client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
@@ -72,6 +71,7 @@ def rank_top_articles(articles: list[dict]) -> list[dict]:
         max_tokens=800,
     )
     raw = response.choices[0].message.content.strip()
+    raw = raw.strip("```json").strip("```").strip()
     return json.loads(raw)
 
 
@@ -93,21 +93,18 @@ def generate_show_notes(top_articles: list[dict], article_map: dict) -> dict:
 
     today = date.today().strftime("%B %d, %Y")
     prompt = (
-        f"You are a podcast host for an aviation news show. Today is {today}.\n\n"
-        "Write a natural, engaging podcast script covering these top 5 aviation stories.\n"
-        "Include a brief intro, transition between stories, and sign-off.\n"
-        "Keep the total under 600 words per language.\n\n"
-        f"Stories:\n{stories_text}\n\n"
-        "Return a JSON object with keys 'en' (English script) and 'zh' (Simplified Chinese script).\n"
-        "Reply with ONLY the JSON object, no other text."
+        load_prompt("generate_shownotes.md")
+        .replace("{today}", today)
+        .replace("{stories}", stories_text)
     )
     response = openai_client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.5,
-        max_tokens=1600,
+        max_tokens=3000,
     )
     raw = response.choices[0].message.content.strip()
+    raw = raw.strip("```json").strip("```").strip()
     return json.loads(raw)
 
 
@@ -250,6 +247,30 @@ def main() -> None:
     print("=== generate_digest.py starting ===")
     today = date.today()
     date_str = today.isoformat()
+
+    # 0. Skip if digest already generated today
+    existing = db.get_digest_by_date(date_str)
+    if existing and existing.get("shownotes_en"):
+        print(f"Digest already exists for {date_str} — skipping LLM generation.")
+        if not existing.get("email_sent"):
+            print("Email not yet sent — sending now…")
+            # rebuild article_map from top_articles ids
+            articles = db.get_recent_aviation_articles(hours=24)
+            article_map = {a["id"]: a for a in articles}
+            send_email(
+                date_str=date_str,
+                shownotes_en=existing["shownotes_en"],
+                shownotes_zh=existing["shownotes_zh"],
+                audio_en_url=existing["audio_en_url"],
+                audio_zh_url=existing["audio_zh_url"],
+                top_articles=existing["top_articles"],
+                article_map=article_map,
+            )
+            db.mark_email_sent(date_str)
+        else:
+            print("Email already sent — nothing to do.")
+        print("=== generate_digest.py done ===")
+        sys.exit(0)
 
     # 1. Fetch recent aviation articles
     articles = db.get_recent_aviation_articles(hours=24)

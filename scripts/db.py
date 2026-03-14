@@ -1,5 +1,6 @@
 """Shared Supabase client and helper functions."""
 
+from __future__ import annotations
 import os
 from supabase import create_client, Client
 
@@ -20,6 +21,18 @@ def get_existing_urls() -> set[str]:
     """Return all article URLs already in the database."""
     client = get_client()
     result = client.table("articles").select("url").execute()
+    return {row["url"] for row in result.data}
+
+
+def get_summarised_urls() -> set[str]:
+    """Return URLs of articles that already have an English summary."""
+    client = get_client()
+    result = (
+        client.table("articles")
+        .select("url")
+        .not_.is_("summary_en", "null")
+        .execute()
+    )
     return {row["url"] for row in result.data}
 
 

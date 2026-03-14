@@ -12,6 +12,7 @@ Workflow 1 — runs every 2 hours via GitHub Actions.
 import json
 import os
 import sys
+from pathlib import Path
 
 import feedparser
 import httpx
@@ -25,6 +26,11 @@ RSS_URL = "https://simpleflying.com/feed/"
 openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 MODEL = "gpt-4o-mini"
 
+PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+
+def load_prompt(name: str) -> str:
+    return (PROMPTS_DIR / name).read_text()
+
 
 # ---------------------------------------------------------------------------
 # LLM helpers
@@ -37,16 +43,7 @@ def classify_titles(titles: list[str]) -> list[bool]:
     Returns a list of booleans in the same order as `titles`.
     """
     numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titles))
-    prompt = (
-        "You are an aviation news classifier.\n"
-        "Given the following article titles (one per line), decide whether each is\n"
-        "primarily about aviation (airlines, airports, aircraft, air travel, aviation\n"
-        "safety, aviation technology, etc.).\n\n"
-        f"{numbered}\n\n"
-        "Reply with a JSON array of booleans, one per title, in the same order.\n"
-        "Example: [true, false, true]\n"
-        "Reply with ONLY the JSON array, no other text."
-    )
+    prompt = load_prompt("classify_titles.md").replace("{numbered_titles}", numbered)
     response = openai_client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
@@ -54,6 +51,7 @@ def classify_titles(titles: list[str]) -> list[bool]:
         max_tokens=len(titles) * 10 + 20,
     )
     raw = response.choices[0].message.content.strip()
+    raw = raw.strip("```json").strip("```").strip()
     return json.loads(raw)
 
 
@@ -66,12 +64,9 @@ def summarise_article(title: str, text: str) -> dict:
     # Truncate body to keep token costs low
     body = text[:4000]
     prompt = (
-        "You are an aviation journalist.\n"
-        f"Title: {title}\n\n"
-        f"Article text:\n{body}\n\n"
-        "Write a concise 2-3 sentence summary of this article.\n"
-        "Reply with a JSON object with keys 'en' (English) and 'zh' (Simplified Chinese).\n"
-        "Reply with ONLY the JSON object, no other text."
+        load_prompt("summarise_article.md")
+        .replace("{title}", title)
+        .replace("{body}", body)
     )
     response = openai_client.chat.completions.create(
         model=MODEL,
@@ -80,6 +75,7 @@ def summarise_article(title: str, text: str) -> dict:
         max_tokens=400,
     )
     raw = response.choices[0].message.content.strip()
+    raw = raw.strip("```json").strip("```").strip()
     return json.loads(raw)
 
 
@@ -121,6 +117,7 @@ def main() -> None:
 
     # 2. Skip duplicates
     existing_urls = db.get_existing_urls()
+    summarised_urls = db.get_summarised_urls()
     new_entries = [e for e in entries if e.get("link") not in existing_urls]
     print(f"New entries (not in DB): {len(new_entries)}")
 
@@ -166,17 +163,20 @@ def main() -> None:
         }
 
         if is_aviation:
-            print(f"  [aviation] {title[:80]}")
-            raw_text = fetch_article_text(url)
-            article["raw_content"] = raw_text[:8000]  # store up to 8k chars
+            if url in summarised_urls:
+                print(f"  [cached]  {title[:80]}")
+            else:
+                print(f"  [aviation] {title[:80]}")
+                raw_text = fetch_article_text(url)
+                article["raw_content"] = raw_text[:8000]
 
-            if raw_text:
-                try:
-                    summaries = summarise_article(title, raw_text)
-                    article["summary_en"] = summaries.get("en", "")
-                    article["summary_zh"] = summaries.get("zh", "")
-                except Exception as exc:
-                    print(f"  [warn] Summarisation failed for {url}: {exc}")
+                if raw_text:
+                    try:
+                        summaries = summarise_article(title, raw_text)
+                        article["summary_en"] = summaries.get("en", "")
+                        article["summary_zh"] = summaries.get("zh", "")
+                    except Exception as exc:
+                        print(f"  [warn] Summarisation failed for {url}: {exc}")
         else:
             print(f"  [skip]    {title[:80]}")
 
