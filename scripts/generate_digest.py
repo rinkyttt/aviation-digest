@@ -33,7 +33,7 @@ MODEL = "gpt-4o-mini"
 
 RESEND_API_KEY = os.environ["RESEND_API_KEY"]
 RESEND_TO = os.environ["RESEND_TO_EMAIL"]
-RESEND_FROM = "Aviation Digest <digest@yourdomain.com>"  # update after domain verification
+RESEND_FROM = "Aviation Digest <onboarding@resend.dev>"
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
