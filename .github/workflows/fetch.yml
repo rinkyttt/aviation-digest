@@ -23,6 +23,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Debug secrets presence
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "SUPABASE_URL set: ${{ secrets.SUPABASE_URL != '' }}"
+          echo "SUPABASE_KEY set: ${{ secrets.SUPABASE_KEY != '' }}"
+          echo "OPENAI_API_KEY set: ${{ secrets.OPENAI_API_KEY != '' }}"
+
       - name: Fetch and store articles
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
